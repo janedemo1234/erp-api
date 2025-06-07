@@ -48,6 +48,11 @@ public class LeaveService {
 
         // Calculate working days (excluding weekends and holidays)
         int workingDays = calculateWorkingDays(leaveRequest.getStartDate(), leaveRequest.getEndDate());
+
+        // Validate working days
+        if (workingDays <= 0) {
+            throw new Exception("Leave application must be for at least one working day. Please select a valid date range.");
+        }
         leaveRequest.setTotalDays(workingDays);
 
         // Check leave balance

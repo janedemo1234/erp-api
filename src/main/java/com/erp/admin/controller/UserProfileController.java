@@ -133,22 +133,47 @@ public class UserProfileController {
             existingProfile.setEmailAddress(updatedProfileData.getEmailAddress());
             existingProfile.setQualification(updatedProfileData.getQualification());
             existingProfile.setDateOfJoining(updatedProfileData.getDateOfJoining());
-            existingProfile.setDesignation(updatedProfileData.getDesignation());
-            existingProfile.setDepartment(updatedProfileData.getDepartment());
+            // Handle "Others" logic
+            if ("Others".equalsIgnoreCase(updatedProfileData.getBankName())) {
+                existingProfile.setBankName(updatedProfileData.getOtherBankName());
+            } else {
+                existingProfile.setBankName(updatedProfileData.getBankName());
+            }
+
+            if ("Others".equalsIgnoreCase(updatedProfileData.getDepartment())) {
+                existingProfile.setDepartment(updatedProfileData.getOtherDepartment());
+            } else {
+                existingProfile.setDepartment(updatedProfileData.getDepartment());
+            }
+
+            if ("Others".equalsIgnoreCase(updatedProfileData.getDesignation())) {
+                existingProfile.setDesignation(updatedProfileData.getOtherDesignation());
+            } else {
+                existingProfile.setDesignation(updatedProfileData.getDesignation());
+            }
+
             existingProfile.setReportingOfficer(updatedProfileData.getReportingOfficer());
             existingProfile.setGrossSalary(updatedProfileData.getGrossSalary());
             existingProfile.setBankAccountNumber(updatedProfileData.getBankAccountNumber());
             existingProfile.setIfscCode(updatedProfileData.getIfscCode());
-            existingProfile.setBankName(updatedProfileData.getBankName());
+            // existingProfile.setBankName(updatedProfileData.getBankName()); // Handled by "Others" logic
             existingProfile.setMedicalBackground(updatedProfileData.getMedicalBackground());
             existingProfile.setLegalBackground(updatedProfileData.getLegalBackground());
             existingProfile.setPan(updatedProfileData.getPan());
             existingProfile.setAdhaar(updatedProfileData.getAdhaar());
             existingProfile.setPersonalFileNumber(updatedProfileData.getPersonalFileNumber());
             existingProfile.setStatus(updatedProfileData.getStatus());
-            // Note: File fields (panFilePath, adhaarFilePath, passbookFilePath, photo) are not updated here.
-            // If file updates are needed, this endpoint would need to accept multipart/form-data
-            // and handle file saving similar to the /save endpoint.
+
+            // Update byte[] document fields
+            existingProfile.setPhoto(updatedProfileData.getPhoto());
+            existingProfile.setPanDocument(updatedProfileData.getPanDocument());
+            existingProfile.setAdhaarDocument(updatedProfileData.getAdhaarDocument());
+            existingProfile.setPassbookDocument(updatedProfileData.getPassbookDocument());
+            existingProfile.setQualificationDocument(updatedProfileData.getQualificationDocument());
+            existingProfile.setOfferLetterDocument(updatedProfileData.getOfferLetterDocument());
+            existingProfile.setAddressProofDocument(updatedProfileData.getAddressProofDocument());
+            existingProfile.setMedicalBackgroundDocument(updatedProfileData.getMedicalBackgroundDocument());
+            existingProfile.setLegalBackgroundDocument(updatedProfileData.getLegalBackgroundDocument());
 
             UserProfile savedProfile = repository.save(existingProfile);
             logger.info("User profile updated successfully for Sr. No: {}", id);

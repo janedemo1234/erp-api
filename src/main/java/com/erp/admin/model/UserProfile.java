@@ -1,6 +1,7 @@
 package com.erp.admin.model;
 
 import jakarta.persistence.*;
+import jakarta.persistence.Transient;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -74,15 +75,48 @@ public class UserProfile {
     @Column(name = "personal_file_number")
     private String personalFileNumber;
 
-    // File paths for documents
-    @Column(name = "pan_file_path")
-    private String panFilePath;
+    // Transient fields for 'Others' option
+    @Transient
+    private String otherBankName;
 
-    @Column(name = "adhaar_file_path")
-    private String adhaarFilePath;
+    @Transient
+    private String otherDepartment;
 
-    @Column(name = "passbook_file_path")
-    private String passbookFilePath;
+    @Transient
+    private String otherDesignation;
+
+    // Document fields
+    @Lob
+    @Column(name = "pan_document", columnDefinition = "MEDIUMBLOB")
+    private byte[] panDocument;
+
+    @Lob
+    @Column(name = "adhaar_document", columnDefinition = "MEDIUMBLOB")
+    private byte[] adhaarDocument;
+
+    @Lob
+    @Column(name = "passbook_document", columnDefinition = "MEDIUMBLOB")
+    private byte[] passbookDocument;
+
+    @Lob
+    @Column(name = "qualification_document", columnDefinition = "MEDIUMBLOB")
+    private byte[] qualificationDocument;
+
+    @Lob
+    @Column(name = "offer_letter_document", columnDefinition = "MEDIUMBLOB")
+    private byte[] offerLetterDocument;
+
+    @Lob
+    @Column(name = "address_proof_document", columnDefinition = "MEDIUMBLOB")
+    private byte[] addressProofDocument;
+
+    @Lob
+    @Column(name = "medical_background_document", columnDefinition = "MEDIUMBLOB")
+    private byte[] medicalBackgroundDocument;
+
+    @Lob
+    @Column(name = "legal_background_document", columnDefinition = "MEDIUMBLOB")
+    private byte[] legalBackgroundDocument;
 
     // Photo field
     @Lob
