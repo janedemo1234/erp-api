@@ -59,56 +59,51 @@ public class LeaveService {
         return leaveRequestRepository.save(leaveRequest);
     }
 
- 
     @Transactional
-public LeaveRequest approveLeave(Long requestId, String approvedBy) throws Exception {
-    LeaveRequest leaveRequest = leaveRequestRepository.findById(requestId)
-            .orElseThrow(() -> new Exception("Leave request not found"));
+    public LeaveRequest approveLeave(Long requestId, String approvedBy) throws Exception {
+        LeaveRequest leaveRequest = leaveRequestRepository.findById(requestId)
+                .orElseThrow(() -> new Exception("Leave request not found"));
 
-    if (leaveRequest.getStatus() != LeaveStatus.PENDING) {
-        throw new Exception("Leave request is not in pending status");
+        if (leaveRequest.getStatus() != LeaveStatus.PENDING) {
+            throw new Exception("Leave request is not in pending status");
+        }
+
+        String employeeSerialNumber = leaveRequest.getUserProfile().getEmployeeSerialNumber();
+        LeaveType leaveType = leaveRequest.getLeaveType();
+        int totalDays = leaveRequest.getTotalDays();
+        int currentYear = LocalDate.now().getYear();
+
+        logger.info("Approving leave for employee: {}, Type: {}, Days: {}", 
+                employeeSerialNumber, leaveType, totalDays);
+
+        // Get current balance
+        LeaveBalance currentBalance = getLeaveBalance(employeeSerialNumber, currentYear);
+        if (currentBalance == null) {
+            throw new Exception("Leave balance not found for employee");
+        }
+
+        // Check if sufficient balance exists
+        int availableBalance = getCurrentBalance(currentBalance, leaveType);
+        if (availableBalance < totalDays) {
+            throw new Exception("Insufficient leave balance. Available: " + availableBalance + ", Required: " + totalDays);
+        }
+
+        // Deduct the balance
+        boolean balanceDeducted = deductLeaveBalanceDirectly(currentBalance, leaveType, totalDays);
+        if (!balanceDeducted) {
+            throw new Exception("Failed to deduct leave balance");
+        }
+
+        // Update leave request status
+        leaveRequest.setStatus(LeaveStatus.APPROVED);
+        leaveRequest.setApprovedBy(approvedBy);
+        leaveRequest.setApprovedDate(LocalDate.now());
+
+        LeaveRequest savedRequest = leaveRequestRepository.save(leaveRequest);
+        
+        logger.info("Leave approved successfully for employee: {}", employeeSerialNumber);
+        return savedRequest;
     }
-
-    // Deduct balance FIRST, before updating status
-    LeaveBalance updatedBalance = deductLeaveBalance(
-        leaveRequest.getUserProfile().getEmployeeSerialNumber(),
-        leaveRequest.getLeaveType(),
-        leaveRequest.getTotalDays()
-    );
-    
-    if (updatedBalance == null) {
-        throw new Exception("Failed to deduct leave balance");
-    }
-
-    // Only update status if deduction was successful
-    leaveRequest.setStatus(LeaveStatus.APPROVED);
-    leaveRequest.setApprovedBy(approvedBy);
-    leaveRequest.setApprovedDate(LocalDate.now());
-
-    return leaveRequestRepository.save(leaveRequest);
-}
-
-// public LeaveRequest approveLeave(Long requestId, String approvedBy) throws Exception {
-//     LeaveRequest leaveRequest = leaveRequestRepository.findById(requestId)
-//             .orElseThrow(() -> new Exception("Leave request not found"));
-
-//     if (leaveRequest.getStatus() != LeaveStatus.PENDING) {
-//         throw new Exception("Leave request is not in pending status");
-//     }
-
-//     leaveRequest.setStatus(LeaveStatus.APPROVED);
-//     leaveRequest.setApprovedBy(approvedBy);
-//     leaveRequest.setApprovedDate(LocalDate.now());
-
-//     // *** Deduct balance here ***
-//     String employeeSerial = leaveRequest.getUserProfile().getEmployeeSerialNumber();
-//     LeaveType leaveType = leaveRequest.getLeaveType();
-//     int days = leaveRequest.getTotalDays();
-//     deductLeaveBalance(employeeSerial, leaveType, days);
-
-//     return leaveRequestRepository.save(leaveRequest);
-// }
-
 
     @Transactional
     public LeaveRequest rejectLeave(Long requestId, String rejectionReason) throws Exception {
@@ -202,85 +197,106 @@ public LeaveRequest approveLeave(Long requestId, String approvedBy) throws Excep
         };
     }
 
-    // Change private to public and add return type
-@Transactional
-public LeaveBalance deductLeaveBalance(String employeeSerialNumber, LeaveType leaveType, int days) {
-    Optional<LeaveBalance> balanceOpt = leaveBalanceRepository.findByUserProfile_EmployeeSerialNumberAndYear(
-        employeeSerialNumber, LocalDate.now().getYear());
-    
-    if (balanceOpt.isPresent()) {
-        LeaveBalance balance = balanceOpt.get();
+    // New method to directly deduct balance from the entity
+    @Transactional
+    private boolean deductLeaveBalanceDirectly(LeaveBalance balance, LeaveType leaveType, int days) {
+        try {
+            int currentBalance = getCurrentBalance(balance, leaveType);
+            
+            logger.info("Before deduction - Type: {}, Current Balance: {}, Days to deduct: {}", 
+                    leaveType, currentBalance, days);
+            
+            if (currentBalance < days) {
+                logger.error("Insufficient balance. Current: {}, Required: {}", currentBalance, days);
+                return false;
+            }
+
+            switch (leaveType) {
+                case CASUAL -> balance.setCasualLeaveBalance(balance.getCasualLeaveBalance() - days);
+                case SICK -> balance.setSickLeaveBalance(balance.getSickLeaveBalance() - days);
+                case LEAVE_WITH_PAY -> balance.setLeaveWithPayBalance(balance.getLeaveWithPayBalance() - days);
+                case LEAVE_WITHOUT_PAY -> balance.setLeaveWithoutPayBalance(balance.getLeaveWithoutPayBalance() - days);
+                default -> {
+                    logger.error("Unknown leave type: {}", leaveType);
+                    return false;
+                }
+            }
+            
+            // Save and flush to ensure immediate persistence
+            LeaveBalance savedBalance = leaveBalanceRepository.saveAndFlush(balance);
+            
+            int newBalance = getCurrentBalance(savedBalance, leaveType);
+            logger.info("After deduction - Type: {}, New Balance: {}", leaveType, newBalance);
+            
+            return true;
+        } catch (Exception e) {
+            logger.error("Error deducting leave balance", e);
+            return false;
+        }
+    }
+
+    // Keep the old method for backward compatibility but make it use the new logic
+    @Transactional
+    public LeaveBalance deductLeaveBalance(String employeeSerialNumber, LeaveType leaveType, int days) {
+        Optional<LeaveBalance> balanceOpt = leaveBalanceRepository.findByUserProfile_EmployeeSerialNumberAndYear(
+            employeeSerialNumber, LocalDate.now().getYear());
         
-        logger.info("Before deduction - Employee: {}, Type: {}, Current Balance: {}", 
-                employeeSerialNumber, leaveType, getCurrentBalance(balance, leaveType));
-        
-        switch (leaveType) {
-            case CASUAL -> balance.setCasualLeaveBalance(balance.getCasualLeaveBalance() - days);
-            case SICK -> balance.setSickLeaveBalance(balance.getSickLeaveBalance() - days);
-            case LEAVE_WITH_PAY -> balance.setLeaveWithPayBalance(balance.getLeaveWithPayBalance() - days);
-            case LEAVE_WITHOUT_PAY -> balance.setLeaveWithoutPayBalance(balance.getLeaveWithoutPayBalance() - days);
+        if (balanceOpt.isPresent()) {
+            LeaveBalance balance = balanceOpt.get();
+            boolean success = deductLeaveBalanceDirectly(balance, leaveType, days);
+            return success ? balance : null;
         }
         
-        // Force flush to ensure the change is persisted
-        LeaveBalance savedBalance = leaveBalanceRepository.saveAndFlush(balance);
-        
-        logger.info("After deduction - Employee: {}, Type: {}, New Balance: {}", 
-                employeeSerialNumber, leaveType, getCurrentBalance(savedBalance, leaveType));
-        
-        return savedBalance;
-    }
-    logger.warn("No leave balance found for employee: {} and year: {}", employeeSerialNumber, LocalDate.now().getYear());
-    return null;
-}
-    // Add these methods to your existing LeaveService class
-
-// Add this helper method to your LeaveService class
-private int getCurrentBalance(LeaveBalance balance, LeaveType leaveType) {
-    return switch (leaveType) {
-        case CASUAL -> balance.getCasualLeaveBalance();
-        case SICK -> balance.getSickLeaveBalance();
-        case LEAVE_WITH_PAY -> balance.getLeaveWithPayBalance();
-        case LEAVE_WITHOUT_PAY -> balance.getLeaveWithoutPayBalance();
-        default -> 0;
-    };
-}
-
-
-@Transactional
-public LeaveBalance deleteLeaveRequest(Long requestId) throws Exception {
-    LeaveRequest leaveRequest = leaveRequestRepository.findById(requestId)
-            .orElseThrow(() -> new Exception("Leave request not found"));
-
-    String employeeSerialNumber = leaveRequest.getUserProfile().getEmployeeSerialNumber();
-    int year = leaveRequest.getAppliedDate().getYear();
-
-    // If the leave was approved, restore the balance
-    if (leaveRequest.getStatus() == LeaveStatus.APPROVED) {
-        restoreLeaveBalance(employeeSerialNumber,
-                leaveRequest.getLeaveType(),
-                leaveRequest.getTotalDays());
+        logger.warn("No leave balance found for employee: {} and year: {}", employeeSerialNumber, LocalDate.now().getYear());
+        return null;
     }
 
-    leaveRequestRepository.delete(leaveRequest);
+    // Helper method to get current balance for a specific leave type
+    private int getCurrentBalance(LeaveBalance balance, LeaveType leaveType) {
+        return switch (leaveType) {
+            case CASUAL -> balance.getCasualLeaveBalance();
+            case SICK -> balance.getSickLeaveBalance();
+            case LEAVE_WITH_PAY -> balance.getLeaveWithPayBalance();
+            case LEAVE_WITHOUT_PAY -> balance.getLeaveWithoutPayBalance();
+            default -> 0;
+        };
+    }
 
-    // Return the updated balance
-    return getLeaveBalance(employeeSerialNumber, year);
-}
+    @Transactional
+    public LeaveBalance deleteLeaveRequest(Long requestId) throws Exception {
+        LeaveRequest leaveRequest = leaveRequestRepository.findById(requestId)
+                .orElseThrow(() -> new Exception("Leave request not found"));
 
-public LeaveRequest getLeaveRequestById(Long requestId) {
-    return leaveRequestRepository.findById(requestId).orElse(null);
-}
+        String employeeSerialNumber = leaveRequest.getUserProfile().getEmployeeSerialNumber();
+        int year = leaveRequest.getAppliedDate().getYear();
 
-private void restoreLeaveBalance(String employeeSerialNumber, LeaveType leaveType, int days) {
-    LeaveBalance balance = getLeaveBalance(employeeSerialNumber, LocalDate.now().getYear());
-    if (balance != null) {
-        switch (leaveType) {
-            case CASUAL -> balance.setCasualLeaveBalance(Math.min(12, balance.getCasualLeaveBalance() + days));
-            case SICK -> balance.setSickLeaveBalance(Math.min(12, balance.getSickLeaveBalance() + days));
-            case LEAVE_WITH_PAY -> balance.setLeaveWithPayBalance(Math.min(12, balance.getLeaveWithPayBalance() + days));
-            case LEAVE_WITHOUT_PAY -> balance.setLeaveWithoutPayBalance(Math.min(12, balance.getLeaveWithoutPayBalance() + days));
+        // If the leave was approved, restore the balance
+        if (leaveRequest.getStatus() == LeaveStatus.APPROVED) {
+            restoreLeaveBalance(employeeSerialNumber,
+                    leaveRequest.getLeaveType(),
+                    leaveRequest.getTotalDays());
         }
-        leaveBalanceRepository.save(balance);
+
+        leaveRequestRepository.delete(leaveRequest);
+
+        // Return the updated balance
+        return getLeaveBalance(employeeSerialNumber, year);
     }
-}
+
+    public LeaveRequest getLeaveRequestById(Long requestId) {
+        return leaveRequestRepository.findById(requestId).orElse(null);
+    }
+
+    private void restoreLeaveBalance(String employeeSerialNumber, LeaveType leaveType, int days) {
+        LeaveBalance balance = getLeaveBalance(employeeSerialNumber, LocalDate.now().getYear());
+        if (balance != null) {
+            switch (leaveType) {
+                case CASUAL -> balance.setCasualLeaveBalance(Math.min(12, balance.getCasualLeaveBalance() + days));
+                case SICK -> balance.setSickLeaveBalance(Math.min(12, balance.getSickLeaveBalance() + days));
+                case LEAVE_WITH_PAY -> balance.setLeaveWithPayBalance(Math.min(12, balance.getLeaveWithPayBalance() + days));
+                case LEAVE_WITHOUT_PAY -> balance.setLeaveWithoutPayBalance(Math.min(12, balance.getLeaveWithoutPayBalance() + days));
+            }
+            leaveBalanceRepository.save(balance);
+        }
+    }
 }
