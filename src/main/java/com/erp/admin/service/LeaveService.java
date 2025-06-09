@@ -132,21 +132,49 @@ public class LeaveService {
         return leaveRequestRepository.findByReportingOfficer(reportingOfficer);
     }
 
+    @Transactional
     public LeaveBalance getLeaveBalance(String employeeSerialNumber, Integer year) {
-        Optional<LeaveBalance> balance = leaveBalanceRepository.findByUserProfile_EmployeeSerialNumberAndYear(employeeSerialNumber, year);
-
-        if (balance.isEmpty()) {
-            // Create new balance for the year
-            UserProfile user = userProfileRepository.findByEmployeeSerialNumber(employeeSerialNumber).orElse(null);
-            if (user != null) {
-                LeaveBalance newBalance = new LeaveBalance();
-                newBalance.setUserProfile(user);
-                newBalance.setYear(year);
-                return leaveBalanceRepository.save(newBalance);
+        try {
+            logger.info("Fetching leave balance for employee: {} and year: {}", employeeSerialNumber, year);
+            
+            // First check if balance exists
+            Optional<LeaveBalance> existingBalance = leaveBalanceRepository.findByUserProfile_EmployeeSerialNumberAndYear(employeeSerialNumber, year);
+            
+            if (existingBalance.isPresent()) {
+                logger.info("Found existing leave balance for employee: {}", employeeSerialNumber);
+                return existingBalance.get();
             }
-        }
 
-        return balance.orElse(null);
+            // If no balance exists, check if user exists first
+            Optional<UserProfile> userOpt = userProfileRepository.findByEmployeeSerialNumber(employeeSerialNumber);
+            if (userOpt.isEmpty()) {
+                logger.error("User not found with employee serial number: {}", employeeSerialNumber);
+                return null;
+            }
+
+            UserProfile user = userOpt.get();
+            logger.info("Creating new leave balance for employee: {} ({})", employeeSerialNumber, user.getEmployeeName());
+
+            // Create new balance for the year
+            LeaveBalance newBalance = new LeaveBalance();
+            newBalance.setUserProfile(user);
+            newBalance.setYear(year);
+            newBalance.setCasualLeaveBalance(12);
+            newBalance.setSickLeaveBalance(12);
+            newBalance.setLeaveWithPayBalance(12);
+            newBalance.setLeaveWithoutPayBalance(12);
+            newBalance.setCreatedDate(LocalDate.now());
+            newBalance.setUpdatedDate(LocalDate.now());
+
+            LeaveBalance savedBalance = leaveBalanceRepository.save(newBalance);
+            logger.info("Successfully created leave balance with ID: {} for employee: {}", savedBalance.getBalanceId(), employeeSerialNumber);
+            
+            return savedBalance;
+
+        } catch (Exception e) {
+            logger.error("Error getting/creating leave balance for employee: {} and year: {}", employeeSerialNumber, year, e);
+            return null;
+        }
     }
 
     public List<LeaveRequest> getCalendarLeaves(LocalDate startDate, LocalDate endDate) {

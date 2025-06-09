@@ -40,11 +40,20 @@ public class LeaveController {
         return ResponseEntity.ok(history);
     }
     
-    // Get leave balance for user - Updated to return frontend format
+    // Get leave balance for user - Updated to return frontend format with better error handling
     @GetMapping("/balance/{employeeSerialNumber}/{year}")
-    public ResponseEntity<LeaveBalance> getLeaveBalance(@PathVariable String employeeSerialNumber, @PathVariable int year) {
-        LeaveBalance balance = leaveService.getLeaveBalance(employeeSerialNumber, year);
-        return ResponseEntity.ok(balance);
+    public ResponseEntity<?> getLeaveBalance(@PathVariable String employeeSerialNumber, @PathVariable int year) {
+        try {
+            LeaveBalance balance = leaveService.getLeaveBalance(employeeSerialNumber, year);
+            if (balance == null) {
+                return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                        .body(Map.of("error", "Employee not found or unable to create leave balance"));
+            }
+            return ResponseEntity.ok(balance);
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "Failed to fetch leave balance: " + e.getMessage()));
+        }
     }
     
     // Delete leave request
@@ -58,28 +67,16 @@ public class LeaveController {
         }
     }
     
-    // The helper methods for mapping are no longer needed as the models will be serialized directly.
-    // You might need to ensure your LeaveRequest and LeaveBalance models are correctly annotated for JSON serialization (e.g., with Jackson annotations if needed).
-    
-    // Existing methods remain the same...
-  @PutMapping("/approve/{requestId}")
-public ResponseEntity<?> approveLeave(@PathVariable Long requestId, @RequestBody Map<String, String> request) {
-    try {
-        String approvedBy = request.get("approvedBy");
-        LeaveRequest approved = leaveService.approveLeave(requestId, approvedBy);
-
-        // // ✅ Now deduct leave balance here
-        // leaveService.deductLeaveBalance(
-        //     approved.getUserProfile().getEmployeeSerialNumber(),
-        //     approved.getLeaveType(),
-        //     approved.getTotalDays()
-        // );
-
-        return ResponseEntity.ok(approved);
-    } catch (Exception e) {
-        return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+    @PutMapping("/approve/{requestId}")
+    public ResponseEntity<?> approveLeave(@PathVariable Long requestId, @RequestBody Map<String, String> request) {
+        try {
+            String approvedBy = request.get("approvedBy");
+            LeaveRequest approved = leaveService.approveLeave(requestId, approvedBy);
+            return ResponseEntity.ok(approved);
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
     }
-}
   
     @PutMapping("/reject/{requestId}")
     public ResponseEntity<?> rejectLeave(@PathVariable Long requestId, @RequestBody Map<String, String> request) {
