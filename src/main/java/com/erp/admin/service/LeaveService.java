@@ -135,27 +135,32 @@ public class LeaveService {
     @Transactional
     public LeaveBalance getLeaveBalance(String employeeSerialNumber, Integer year) {
         try {
-            logger.info("Fetching leave balance for employee: {} and year: {}", employeeSerialNumber, year);
+            logger.info("=== Starting getLeaveBalance ===");
+            logger.info("Employee Serial Number: {}", employeeSerialNumber);
+            logger.info("Year: {}", year);
             
             // First check if balance exists
+            logger.info("Checking if leave balance already exists...");
             Optional<LeaveBalance> existingBalance = leaveBalanceRepository.findByUserProfile_EmployeeSerialNumberAndYear(employeeSerialNumber, year);
             
             if (existingBalance.isPresent()) {
-                logger.info("Found existing leave balance for employee: {}", employeeSerialNumber);
+                logger.info("Found existing leave balance with ID: {}", existingBalance.get().getBalanceId());
                 return existingBalance.get();
             }
 
+            logger.info("No existing balance found, checking if user exists...");
             // If no balance exists, check if user exists first
             Optional<UserProfile> userOpt = userProfileRepository.findByEmployeeSerialNumber(employeeSerialNumber);
             if (userOpt.isEmpty()) {
-                logger.error("User not found with employee serial number: {}", employeeSerialNumber);
+                logger.error("❌ User not found with employee serial number: {}", employeeSerialNumber);
                 return null;
             }
 
             UserProfile user = userOpt.get();
-            logger.info("Creating new leave balance for employee: {} ({})", employeeSerialNumber, user.getEmployeeName());
+            logger.info("✅ User found: {} (ID: {})", user.getEmployeeName(), user.getSrNo());
 
             // Create new balance for the year
+            logger.info("Creating new leave balance...");
             LeaveBalance newBalance = new LeaveBalance();
             newBalance.setUserProfile(user);
             newBalance.setYear(year);
@@ -166,15 +171,29 @@ public class LeaveService {
             newBalance.setCreatedDate(LocalDate.now());
             newBalance.setUpdatedDate(LocalDate.now());
 
+            logger.info("Saving new leave balance to database...");
             LeaveBalance savedBalance = leaveBalanceRepository.save(newBalance);
-            logger.info("Successfully created leave balance with ID: {} for employee: {}", savedBalance.getBalanceId(), employeeSerialNumber);
+            logger.info("✅ Successfully created leave balance with ID: {} for employee: {}", savedBalance.getBalanceId(), employeeSerialNumber);
             
             return savedBalance;
 
         } catch (Exception e) {
-            logger.error("Error getting/creating leave balance for employee: {} and year: {}", employeeSerialNumber, year, e);
-            return null;
+            logger.error("❌ Exception in getLeaveBalance for employee: {} and year: {}", employeeSerialNumber, year, e);
+            logger.error("Exception type: {}", e.getClass().getSimpleName());
+            logger.error("Exception message: {}", e.getMessage());
+            if (e.getCause() != null) {
+                logger.error("Root cause: {}", e.getCause().getMessage());
+            }
+            throw new RuntimeException("Failed to get/create leave balance: " + e.getMessage(), e);
         }
+    }
+
+    // Add method to check if employee exists
+    public boolean checkEmployeeExists(String employeeSerialNumber) {
+        logger.info("Checking if employee exists: {}", employeeSerialNumber);
+        boolean exists = userProfileRepository.existsByEmployeeSerialNumber(employeeSerialNumber);
+        logger.info("Employee {} exists: {}", employeeSerialNumber, exists);
+        return exists;
     }
 
     public List<LeaveRequest> getCalendarLeaves(LocalDate startDate, LocalDate endDate) {
